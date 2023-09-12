@@ -23,10 +23,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"math/rand"
 	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 func main() {
@@ -45,17 +47,26 @@ func main() {
 		os.Exit(1)
 	}
 	height, err := strconv.ParseUint(flag.Arg(0), 10, 0)
-	if err != nil { fmt.Println("Could not understand height"); os.Exit(1) }
+	if err != nil {
+		fmt.Println("Could not understand height")
+		os.Exit(1)
+	}
 	width, err := strconv.ParseUint(flag.Arg(1), 10, 0)
-	if err != nil { fmt.Println("Could not understand width"); os.Exit(1) }
+	if err != nil {
+		fmt.Println("Could not understand width")
+		os.Exit(1)
+	}
 	seed, err := strconv.ParseInt(flag.Arg(2), 10, 64)
-	if err != nil { fmt.Println("Could not understand the seed"); os.Exit(1) }
+	if err != nil {
+		fmt.Println("Could not understand the seed")
+		os.Exit(1)
+	}
 
 	minDifficulty := 1
 	maxDifficulty := 0
 
-	if (*d)[len(*d) - 1] == '+' {
-		minDifficulty, _ = strconv.Atoi((*d)[:len(*d) - 1])
+	if (*d)[len(*d)-1] == '+' {
+		minDifficulty, _ = strconv.Atoi((*d)[:len(*d)-1])
 	} else {
 		minDifficulty, _ = strconv.Atoi(*d)
 		maxDifficulty = minDifficulty
@@ -65,10 +76,9 @@ func main() {
 
 	for count := uint(0); count < *n; {
 		cmd := exec.Command("go", "run", "./generate.go", fmt.Sprintf("%v", height), fmt.Sprintf("%v", width), fmt.Sprintf("%v", seed))
-		output, err := cmd.Output()
-		if err != nil {
-			panic(err)
-		}
+		c := make(chan string)
+		go generate(height, width, seed, c)
+		output := []byte(<-c)
 
 		file, _ := ioutil.TempFile(".", "")
 		file.Write(output)
@@ -96,4 +106,57 @@ func main() {
 
 		os.Remove(file.Name())
 	}
+}
+
+func generate(height, width uint64, seed int64, c chan<- string) {
+	goal := ""
+	for i := uint64(0); i < width*height; i++ {
+		goal += strconv.Itoa(rand.Intn(2))
+	}
+
+	rowHints := make([]string, height)
+	for y := uint64(0); y < height; y++ {
+		row := goal[y*width : y*width+width]
+		rowChunks := strings.Split(row, "0")
+		var currentRowHints []string
+		for _, chunk := range rowChunks {
+			if l := len(chunk); l > 0 {
+				currentRowHints = append(currentRowHints, strconv.Itoa(l))
+			}
+		}
+		rowHints[y] = strings.Join(currentRowHints, ",")
+	}
+
+	colHints := make([]string, width)
+	for x := uint64(0); x < width; x++ {
+		col := ""
+		for y := uint64(0); y < height; y++ {
+			col += string(goal[y*width+x])
+		}
+		colChunks := strings.Split(col, "0")
+		var currentColHints []string
+		for _, chunk := range colChunks {
+			if l := len(chunk); l > 0 {
+				currentColHints = append(currentColHints, strconv.Itoa(l))
+			}
+		}
+		colHints[x] = strings.Join(currentColHints, ",")
+	}
+
+	content := fmt.Sprintf(`catalogue "generate.go with seed %v"
+title "Random #%v"
+by "Michael Terry"
+copyright "© 2015 Michael Terry"
+license CC-BY-SA-4.0
+height %v
+width %v
+
+rows
+%s
+
+columns
+%s
+
+goal "%v"`, seed, seed, height, width, strings.Join(rowHints, "\n"), strings.Join(colHints, "\n"), goal)
+	c <- content
 }
